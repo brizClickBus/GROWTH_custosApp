@@ -1,0 +1,6 @@
+*.vscode
+envCustoAppBus
+*.txt
+*.pickle
+*.csv
+*.json
