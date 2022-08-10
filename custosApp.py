@@ -6,7 +6,8 @@ from utils import Data,GoogleSheets
 
 #Estanciando a classe de funções do google sheets.
 matrizParceiros = GoogleSheets(spreadSheetID = os.environ.get("matrizParceirosID"),
-                                clientSecret=os.path.join('.','clientID','client_secret.json'))
+                                credentials = os.path.join('.','clientID','credentials.json'),
+                                clientSecret=os.path.join('.','clientID','clientSecret.json'))
 #Chamando a função para tranformar a planilha : (Matriz de Parceiros - Mídia ) aba : (CustosApp_atual) em uma lista.
 custosAppAtual:list = matrizParceiros.pull_sheet_data(workSheetName='CustosApp_atual')
 #Transformando o retorno da planilha em um dataFrame.
@@ -14,6 +15,17 @@ custosAppAtual:pd.DataFrame = pd.DataFrame(custosAppAtual[1:],columns=custosAppA
 
 #Lendo o arquivo CSV extraido do adjust.
 consolidatedAdjust = pd.read_csv(os.path.join('.','files',os.listdir(os.path.join('.','files'))[0]))
+
+#groupBy do df
+consolidatedAdjust = Data.goupBy(
+    df=consolidatedAdjust,
+    groupedColumns=["source","os_name","campaign"],
+    sumColumns=["impressions","clicks","cost",
+        "installs","sessions","daus",
+        "maus","splash_app_open","search",
+        "seat","passenger","checkout",
+        "success","first_purchase","revenue"])
+
 #Transformar a coluna de data do arquivo do adjunst tambem em dateTime 
 # (Dessa maneira vai ficar mais facil manipular os dois arquivos utilizando filtros das colunas de datas)
 consolidatedAdjust['created_at'] = pd.to_datetime(consolidatedAdjust['created_at'])
@@ -30,19 +42,19 @@ for index,row in custosAppAtual.iterrows():
     #Filtrar o data Frame do arquivo consolidatedAdjust para que conseguimos manipular o mesmo de uma maneira mais rapida.
     if custoApp['origem'][index] == 'Liftoff':
         adjust = consolidatedAdjust[
-                (consolidatedAdjust.part_month == custoApp['dataInicio'][index].month)
-                & (consolidatedAdjust.part_year == custoApp['dataInicio'][index].year)
-                & (consolidatedAdjust.created_at == custoApp['dataInicio'][index])
+                # (consolidatedAdjust.part_month == custoApp['dataInicio'][index].month)
+                # & (consolidatedAdjust.part_year == custoApp['dataInicio'][index].year)
+                 (consolidatedAdjust.created_at >= custoApp['dataInicio'][index])
                 & (consolidatedAdjust.os_name == custoApp['sistemaOperacional'][index])
                 & (consolidatedAdjust.source == custoApp['origem'][index])
                 | (consolidatedAdjust.source == 'Liftoff RE')
             ]
-        adjust = adjust[(consolidatedAdjust.created_at == custoApp['dataInicio'][index])]
+        # adjust = adjust[(consolidatedAdjust.created_at == custoApp['dataInicio'][index])]
     else:
         adjust = consolidatedAdjust[
-                        (consolidatedAdjust.part_month == custoApp['dataInicio'][index].month)
-                        & (consolidatedAdjust.part_year == custoApp['dataInicio'][index].year)
-                        & (consolidatedAdjust.created_at == custoApp['dataInicio'][index])
+                        # (consolidatedAdjust.part_month == custoApp['dataInicio'][index].month)
+                        # & (consolidatedAdjust.part_year == custoApp['dataInicio'][index].year)
+                        (consolidatedAdjust.created_at >= custoApp['dataInicio'][index])
                         & (consolidatedAdjust.os_name == custoApp['sistemaOperacional'][index])
                         & (consolidatedAdjust.source == custoApp['origem'][index])
                     ]
@@ -66,6 +78,8 @@ for index,row in custosAppAtual.iterrows():
 
 #Dessa maneira eu substituo os valores Nan de um dataFrame por zero.
 results = results.fillna(0)
+#dropar todas as linhas que sejam totalmente iguais
+# results.drop_duplicates(keep=False,inplace=True)
 
 #Vamos subir o data Frame results na planilha do google sheets
 matrizParceiros.insertDataFrameToGsheets(workSheetName='resultsCustosApp_Atual',dataFrame=results,clear=True)

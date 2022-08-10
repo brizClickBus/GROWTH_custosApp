@@ -1,6 +1,7 @@
 import json
 import os
 import pickle
+import time
 
 import pandas as pd
 import pygsheets
@@ -11,8 +12,10 @@ from googleapiclient.discovery import build
 
 
 class API():
-    def __init__(self,url) -> None:
+    def __init__(self,url=None,API_KEY=None,API_SECRET=None) -> None:
         self.url = url
+        self.API_KEY = API_KEY
+        self.API_SECRET = API_SECRET
     
     
     def cotacaoDolar(self):
@@ -21,16 +24,52 @@ class API():
         return round(float(cotacao['USD']['bid']),2)
 
 
+    def reportsLifToff(self,url):
+        status_code = 0
+        while status_code != 200:
+            time.sleep(5)
+            r = requests.get(
+                url,
+                auth=(
+                    self.API_KEY,
+                    self.API_SECRET
+                )
+            )
+            status_code = r.status_code
+        return r.text
+
+
+    def lifToff(self,start_time,end_time):
+        r = requests.post(
+            self.url,
+            json={
+                "group_by": ["apps", "campaigns"],
+                "start_time": start_time,
+                "end_time": end_time,
+            },
+            auth=(self.API_KEY, self.API_SECRET),
+            headers={"Content-Type": "application/json"},
+            )
+            
+        id = json.loads(r.content)['id']
+        urlReport = f'https://data.liftoff.io/api/v1/reports/{id}/data'
+        
+        csv = API.reportsLifToff(self,url=urlReport)
+        list = csv.split("\n")
+        df = pd.DataFrame(list[1:],columns=[list[0]])
+        return df
+
+
 class GoogleSheets():
-    def __init__(self,clientSecret,spreadSheetID):
+    def __init__(self,clientSecret,credentials,spreadSheetID):
         self.spreadSheetID = spreadSheetID
         spreadSheetID = self.spreadSheetID
+        self.credentials = credentials
         self.clientSecret = clientSecret
         clientSecret = clientSecret
         cliente = pygsheets.authorize(service_file = clientSecret)
         self.scopes = ['https://www.googleapis.com/auth/spreadsheets']
         self.sht = cliente.open_by_key(spreadSheetID)
-
 
     def pull_sheet_data(self,workSheetName):
         creds = GoogleSheets.gsheet_api_check(self)
@@ -56,7 +95,7 @@ class GoogleSheets():
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             else:
-                flow = InstalledAppFlow.from_client_secrets_file(self.clientSecret, self.scopes)
+                flow = InstalledAppFlow.from_client_secrets_file(self.credentials, self.scopes)
                 creds = flow.run_local_server(port=0)
             with open('token.pickle', 'wb') as token:
                 pickle.dump(creds, token)
@@ -146,3 +185,30 @@ class Data():
         self.adjust['cost'] = valor*impressions
 
         return self.adjust
+    
+    def goupBy(df,groupedColumns,sumColumns):
+        # #groupBy do df
+        # return df.fillna(0).groupby(groupedColumns)[sumColumns].apply(lambda x : x.astype(int).sum())
+        # return df.groupby(groupedColumns).agg({'col3':'sum','col4':'sum'})
+        columns={}
+        for x in sumColumns:
+            columns[x]='sum'
+        return df.groupby(groupedColumns).agg(columns)
+
+
+#testando API liftoff
+if __name__=='__main__':
+
+    lifToff = API(
+        url="https://data.liftoff.io/api/v1/reports",
+        API_KEY="c4416825bf",
+        API_SECRET="nucqfsPxbHGvdkXtmTmsJg=="
+    )    
+
+    df = lifToff.lifToff(start_time="2021-11-01",end_time="2022-11-01")
+    print(df)
+
+
+
+
+
