@@ -2,6 +2,7 @@ import json
 import os
 import pickle
 import time
+from datetime import datetime, timedelta
 
 import pandas as pd
 import pygsheets
@@ -25,21 +26,22 @@ class API():
 
 
     def reportsLifToff(self,url):
+        #pra fazer a consulta da API do relatório precisa esperar um pouco pra liftoff processar o relatório. 
+        #Então por isso faco um looping em while até o status_code ser igual a 200 
+        # e a cada tentativa meu código espera 5seg
         status_code = 0
         while status_code != 200:
             time.sleep(5)
-            r = requests.get(
-                url,
-                auth=(
-                    self.API_KEY,
-                    self.API_SECRET
-                )
-            )
+            r = requests.get(url,auth=(self.API_KEY,self.API_SECRET))
             status_code = r.status_code
         return r.text
 
-
+    #Principal função para consultas a API da lifToff
     def lifToff(self,start_time,end_time):
+        #Primeira parte da API
+        #  nós precisamos gerar uma solicitação de uma relatório.
+        #  Passando algumas informações como o range da data
+        #  e nesse caso o relatório vai ter um group by nas colunas expeficicadas abaixo
         r = requests.post(
             self.url,
             json={
@@ -50,13 +52,19 @@ class API():
             auth=(self.API_KEY, self.API_SECRET),
             headers={"Content-Type": "application/json"},
             )
-            
+        
+        #pegar o id do relatorio solicitado pela API pois ele sera usado no andPoint da proxima API
         id = json.loads(r.content)['id']
         urlReport = f'https://data.liftoff.io/api/v1/reports/{id}/data'
-        
+        #consultar a API para pegar o relatório solicitado
         csv = API.reportsLifToff(self,url=urlReport)
+        #o retorno da API é um arquivo CSV entao vamos tranformalo em uma lista, separando por ','
         list = csv.split("\n")
-        df = pd.DataFrame(list[1:],columns=[list[0]])
+        #Transformando o retorno da API em um df o len( 0 ) é o cabeçalho é as próximas linhas da lista seria o corpo
+        df = pd.DataFrame([x.split(",") for x in list[1:]],columns=[x.split(",") for x in list[:1]])
+        #renomear a coluna  spend por cost para padronizar com a tabela do adjust
+        df.rename(columns={'spend':'cost'}, inplace=True)
+
         return df
 
 
@@ -153,18 +161,26 @@ class Data():
         valor =  float(self.custoApp['valor'][index].replace(',','.'))
         valorFixo = float(self.custoApp['valorFixoDia'][index].replace(',','.'))
         cotacaoParceiro = float(self.custoApp['cotacaoDolarParceiro'][index].replace(',','.'))
-        cotacaoDolarAtual = API(url='https://economia.awesomeapi.com.br/all/USD-BRL').cotacaoDolar()
-        impressions = self.adjust['impressions'].fillna(0)
+        # cotacaoDolarAtual = API(url='https://economia.awesomeapi.com.br/all/USD-BRL').cotacaoDolar()
+        # impressions = self.adjust['impressions'].fillna(0)
         cost = self.adjust['cost'].fillna(0)
 
-        #calculo do cost1
-        self.adjust['cost1'] = (((impressions/1000)*valor)*cotacaoParceiro)
         #calculo do cost2
-        self.adjust['cost2'] = ((cost/cotacaoDolarAtual)*cotacaoParceiro)
+        self.adjust['cost2'] = (cost*cotacaoParceiro)
         #calculo do cost
         self.adjust['cost'] = valorFixo
 
         return self.adjust
+
+
+    def modelos(self,index,modelo):
+        if modelo == 'CPM':
+            adjust = Data.cpm(self,index=index)  
+        elif modelo == 'CPI':
+            adjust = Data.cpi(self,index=index)
+        elif modelo == 'CPA':
+            adjust = Data.cpa(self,index=index)
+        return adjust
 
 
     def cpa(self,index):
@@ -180,12 +196,13 @@ class Data():
     def cpi(self,index):
 
         valor = float(self.custoApp['valor'][index].replace(',','.'))
-        impressions = self.adjust['impressions'].fillna(0)
+        installs = self.adjust['installs'].fillna(0)
 
-        self.adjust['cost'] = valor*impressions
+        self.adjust['cost'] = valor*installs
 
         return self.adjust
     
+
     def goupBy(df,groupedColumns,sumColumns):
         # #groupBy do df
         # return df.fillna(0).groupby(groupedColumns)[sumColumns].apply(lambda x : x.astype(int).sum())

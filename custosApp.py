@@ -1,7 +1,8 @@
 
 import os
 import pandas as pd
-from utils import Data,GoogleSheets
+from datetime import datetime,timedelta
+from utils import Data,GoogleSheets,API
 
 
 #Estanciando a classe de funções do google sheets.
@@ -16,16 +17,6 @@ custosAppAtual:pd.DataFrame = pd.DataFrame(custosAppAtual[1:],columns=custosAppA
 #Lendo o arquivo CSV extraido do adjust.
 consolidatedAdjust = pd.read_csv(os.path.join('.','files',os.listdir(os.path.join('.','files'))[0]))
 
-#groupBy do df
-consolidatedAdjust = Data.goupBy(
-    df=consolidatedAdjust,
-    groupedColumns=["source","os_name","campaign"],
-    sumColumns=["impressions","clicks","cost",
-        "installs","sessions","daus",
-        "maus","splash_app_open","search",
-        "seat","passenger","checkout",
-        "success","first_purchase","revenue"])
-
 #Transformar a coluna de data do arquivo do adjunst tambem em dateTime 
 # (Dessa maneira vai ficar mais facil manipular os dois arquivos utilizando filtros das colunas de datas)
 consolidatedAdjust['created_at'] = pd.to_datetime(consolidatedAdjust['created_at'])
@@ -35,6 +26,7 @@ results = pd.DataFrame()
 for index,row in custosAppAtual.iterrows():
     #Transpondo a linha do dataFrame.
     custoApp = pd.DataFrame(row).T
+    modelo = custoApp['modelo'][index]
     
     #Transformando a coluna de data que estava em string para DateTime.
     custoApp['dataInicio'] = pd.to_datetime(custoApp['dataInicio'],format='%d/%m/%Y')
@@ -49,7 +41,27 @@ for index,row in custosAppAtual.iterrows():
                 & (consolidatedAdjust.source == custoApp['origem'][index])
                 | (consolidatedAdjust.source == 'Liftoff RE')
             ]
-        # adjust = adjust[(consolidatedAdjust.created_at == custoApp['dataInicio'][index])]
+        adjust = adjust[(consolidatedAdjust.created_at == custoApp['dataInicio'][index])]
+        
+        #consultar dados da API da lifToff
+        api = API(
+            url="https://data.liftoff.io/api/v1/reports",
+            API_KEY="c4416825bf",
+            API_SECRET="nucqfsPxbHGvdkXtmTmsJg=="
+            )
+
+        startTime = datetime.strptime(str(custoApp['dataInicio'][index]).split(" ")[0],"%Y-%m-%d")
+        
+        #and time get the yesterday
+        # endTime = startTime - timedelta(days=1)
+
+        lifToff = api.lifToff(
+            end_time="2022-07-21",
+            start_time=startTime.strftime("%Y-%m-%d")
+            )
+        #Estanciando a classe de manipulação de dados
+        data = Data(dfAdjust=lifToff,dfCustoApp=custoApp)
+        adjust = data.modelos(index=index,modelo=modelo)
     else:
         adjust = consolidatedAdjust[
                         # (consolidatedAdjust.part_month == custoApp['dataInicio'][index].month)
@@ -65,13 +77,10 @@ for index,row in custosAppAtual.iterrows():
     
     #Estanciando a classe de manipulação de dados
     data = Data(dfAdjust=adjust,dfCustoApp=custoApp)
-    #Teste lógico para calcular cada tipo de modelo
-    if custoApp['modelo'][index] == 'CPM':
-        adjust = data.cpm(index=index)
-    elif custoApp['modelo'][index] == 'CPI':
-        adjust = data.cpi(index=index)
-    elif custoApp['modelo'][index] == 'CPA':
-        adjust = data.cpa(index=index)
+    #roda calculo para cada tipo de modelo apresentado na base
+    adjust = data.modelos(index=index,modelo=modelo)
+    
+    
     #Apos fazer os calculos para cada tipo de modelo respectivo 
     #vamos consolidar o resultado em um data Frame que será retornado para um google sheets de return.
     results = results.append(adjust)
